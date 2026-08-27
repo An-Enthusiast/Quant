@@ -276,33 +276,75 @@ Butterfly (per slice):  b ≥ 0,  |ρ| < 1,  σ > 0,
 Calendar (between expiries T1 < T2):  w(k; T2) ≥ w(k; T1)  for all k
 ```
 
-Fitting each expiry slice independently (no joint cross-expiry constraint)
-means calendar arbitrage is a *possible* outcome, not a structurally
-excluded one — exactly why the check exists as a standalone, always-run
-report rather than an assumption. In the synthetic surfaces used for
-initial development, 1–2 of 2 calendar pairs typically pass. **Measured
-against the full real 26-day Bhavcopy archive** (§3 "Phase 1.5", all
-expiries, both underlyings -- not a sample): butterfly violations are
-uncommon (6.0% of NIFTY slices, 0.0% of BankNifty), but **calendar
-violations are the norm, not the exception, on real data** (83.3% of
-NIFTY expiry-pairs, 78.9% of BankNifty). Convergence (in the strict
-`rmse < 1e-4` sense) also drops on real data versus the clean synthetic
-fixtures -- 54% of NIFTY slices, 80% of BankNifty -- reflecting genuine
-local noise in real smiles that a smooth 5-parameter SVI curve can't fully
-capture; the fits are still usable (median RMSE 1.75e-2 / 6.0e-3
-respectively) but not textbook-tight. None of this crashes or produces
-unusable output (0 exceptions across all 52 day×symbol fits) -- it's an
-honest signal that per-slice independent calibration is a materially
-bigger gap on real data than the synthetic dev data suggested, which
-raises the priority of the joint-calibration item in §9 from "nice to
-have" to "worth doing before the surface output is used for anything
-that assumes calendar consistency" (e.g. calendar-spread risk). It
-remains intentionally visible via `VolSurface.no_arbitrage_report()`
-rather than silently patched.
+**The calendar problem, measured.** Fitting each expiry slice
+independently has no structural guarantee against calendar arbitrage.
+Against the full real 26-day Bhavcopy archive (all expiries, both
+underlyings, not a sample), independent per-slice fitting violated
+calendar no-arb on **83.3% of NIFTY expiry-pairs and 78.9% of
+BankNifty's** -- the norm, not the exception, on real data (synthetic dev
+data hadn't surfaced this: 1-2 of 2 pairs typically passed there).
+Butterfly violations were less common but not negligible (6.0% NIFTY,
+0.0% BankNifty), and strict convergence (`rmse < 1e-4`) dropped to
+54%/80% versus the clean synthetic fixtures, reflecting genuine local
+noise in real smiles a smooth 5-parameter curve can't fully capture.
+Nothing crashed (0 exceptions across all 52 day×symbol fits); it was an
+honest signal that independent-slice calibration was a materially bigger
+gap on real data than initial synthetic-data testing suggested.
 
-**Measured throughput:** 18.1 µs per slice fit (40 points, C++ LM), i.e.
-~55,000 full-slice calibrations/sec on one core — recalibrating the entire
-Nifty *and* BankNifty surface (all expiries) is sub-millisecond.
+**Joint (sequential, calendar-constrained) calibration.**
+`core/svi_surface.py::fit_surface_from_chain` now fits expiries in
+increasing-maturity order and, after each slice's ordinary unconstrained
+fit, checks it against the *immediately preceding* successfully-fitted
+slice (`check_calendar_no_arb`, evaluated on `pair_k_grid` -- the union of
+both slices' *actually observed* log-moneyness range, not an arbitrary
+wide domain; more on why below). A violation triggers a refit via
+`calibrate_svi_slice_with_calendar_floor`: the same 5-parameter fit, with
+an added soft penalty for `w(k)` falling below the preceding slice's
+`w(k)` on that grid, escalating the penalty weight across up to 5 rounds
+(each warm-started from the previous round) until compliant or the budget
+runs out. Two properties make this tractable rather than a full joint
+optimization across every expiry simultaneously:
+
+- **Transitivity.** If slice 2 dominates slice 1 pointwise and slice 3
+  dominates slice 2, slice 3 also dominates slice 1. Enforcing only
+  *adjacent* pairs in maturity order is enough for the whole surface to be
+  calendar-consistent.
+- **Domain scoping.** An early version penalized violations on a fixed
+  wide grid (±50% moneyness) with no bounds on the refit's `(m, σ)` --
+  and made things *worse* (NIFTY calendar violations 83.3% → 91.1%, plus
+  new butterfly violations that weren't there before): the optimizer
+  chased an unenforceable, physically meaningless constraint far outside
+  any traded strike by adopting extreme wing slopes. Restricting the
+  penalty grid to the pair's actual observed domain, with the same
+  domain-derived `(m, σ)` bounds used for the base fit (now applied to
+  the union of the market data and the penalty grid), fixed this -- the
+  same "don't extrapolate past the data" principle in item 2 above,
+  applied to the calendar constraint instead of just the base fit.
+
+**Measured result** (same full real archive, same methodology):
+calendar violations dropped from 83.3% → **1.4%** (NIFTY) and 78.9% →
+**3.1%** (BankNifty) -- roughly a 20-25x reduction, not a full
+elimination (a residual few percent of pairs don't admit a fully
+calendar-consistent fit even at the escalation budget's ceiling without
+unacceptably distorting that slice's own market fit; these remain
+visible via `no_arbitrage_report()`, exactly the point of keeping it a
+real check rather than an assumption). Butterfly violations *improved* as
+a side effect (6.0% → 0.2% NIFTY, unchanged 0.0% BankNifty), convergence
+rate improved substantially (54% → 97% NIFTY, 80% → 97% BankNifty), and
+median RMSE was essentially unchanged (1.75e-2 → 1.75e-2 NIFTY, 6.04e-3 →
+6.36e-3 BankNifty) -- the fix did not trade market-fit quality for
+calendar consistency. Cost: recalibrating a full day's surface (fitting
+plus any escalation rounds) now takes ~1.5s for NIFTY's ~18 expiries and
+~0.5s for BankNifty's ~6 on one core, versus sub-millisecond for the
+unconstrained fit alone -- irrelevant for the once-per-tick/day
+recalibration cadence this project actually uses it at (confirmed against
+the event-driven backtester, §7, which refits every tick), but not a
+number to assume holds at, say, thousands of fits/sec. Set
+`enforce_calendar_no_arb=False` to get the old independent-per-slice
+behavior (e.g. for direct before/after comparison).
+
+**Measured throughput (unconstrained fit):** 18.1 µs per slice fit (40
+points, C++ LM), i.e. ~55,000 full-slice calibrations/sec on one core.
 
 ### 4.4 Vectorized Greeks engine
 
@@ -656,16 +698,20 @@ exact parameters.
    handshake implemented per their module docstrings; the
    `MarketDataInterface` contract they'll conform to is already fixed and
    tested against the Phase-1 adapter.
-4. **Joint (cross-expiry) SVI calibration.** Current calibration is
-   per-slice; measured against the full real Bhavcopy archive (§4.3),
-   calendar-arbitrage violations aren't occasional -- they hit 78-83% of
-   expiry-pairs on real data. A joint calibration that constrains
-   later-expiry minimum variance to dominate earlier-expiry minimum
-   variance during the fit itself would structurally eliminate this, at
-   the cost of a more complex (coupled, higher-dimensional) optimization.
-   Given how often it fires on real data, this is now the highest-value
-   remaining item in this list for anything downstream that assumes
-   calendar consistency (e.g. calendar-spread risk).
+4. **Joint (cross-expiry) SVI calibration.** Done -- sequential,
+   calendar-floor-constrained calibration (§4.3) brought real-data
+   calendar violations from 83.3%/78.9% down to 1.4%/3.1%
+   (NIFTY/BankNifty), with butterfly compliance and convergence both
+   improving as a side effect and market-fit RMSE essentially unchanged.
+   What's still open: a residual few percent of pairs don't admit a fully
+   calendar-consistent fit even at the escalation budget's ceiling
+   without unacceptably distorting that slice's own market fit -- these
+   remain visible via `no_arbitrage_report()` rather than forced to zero.
+   A true fully-joint optimization across every expiry simultaneously
+   (rather than sequential adjacent-pair constraints) could in principle
+   close the remainder, at the cost of a much larger coupled optimization
+   problem; not pursued given how small the residual now is relative to
+   the gap it closed.
 5. **Order-book fidelity.** The backtester's fill model (§7.1) is a
    documented approximation appropriate to touch+volume data; real L2/L3
    depth from a live broker feed (Phase 2) would let the backtester graduate
