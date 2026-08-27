@@ -78,21 +78,74 @@ def run_prototype(args: argparse.Namespace) -> None:
 
 
 def run_live(args: argparse.Namespace) -> None:
+    import os
+
     if args.broker == "shoonya":
         from core.shoonya_ws_adapter import ShoonyaCredentials, ShoonyaWebSocketAdapter
 
+        required = ("SHOONYA_USER_ID", "SHOONYA_PASSWORD", "SHOONYA_TOTP_SECRET", "SHOONYA_VENDOR_CODE", "SHOONYA_API_KEY")
+        missing = [name for name in required if not os.environ.get(name)]
+        if missing:
+            raise SystemExit(
+                "Missing required environment variable(s) for --broker shoonya: "
+                + ", ".join(missing)
+                + ". See docs/WHITEPAPER.md Phase 2 setup, or run "
+                "scripts/shoonya_live_smoke_test.py first to verify credentials in isolation."
+            )
         credentials = ShoonyaCredentials(
-            user_id="", password="", totp_secret="", vendor_code="", api_key="", imei=""
+            user_id=os.environ["SHOONYA_USER_ID"],
+            password=os.environ["SHOONYA_PASSWORD"],
+            totp_secret=os.environ["SHOONYA_TOTP_SECRET"],
+            vendor_code=os.environ["SHOONYA_VENDOR_CODE"],
+            api_key=os.environ["SHOONYA_API_KEY"],
+            imei=os.environ.get("SHOONYA_IMEI", "quant-live"),
         )
         adapter = ShoonyaWebSocketAdapter(credentials)
     else:
         from core.upstox_protobuf_adapter import UpstoxCredentials, UpstoxProtobufAdapter
 
-        credentials = UpstoxCredentials(client_id="", client_secret="", redirect_uri="")
+        credentials = UpstoxCredentials(
+            client_id=os.environ.get("UPSTOX_CLIENT_ID", ""),
+            client_secret=os.environ.get("UPSTOX_CLIENT_SECRET", ""),
+            redirect_uri=os.environ.get("UPSTOX_REDIRECT_URI", ""),
+        )
         adapter = UpstoxProtobufAdapter(credentials)
 
     print(f"live mode: connecting via {args.broker} adapter (Phase 2)...")
-    adapter.connect()  # raises NotImplementedError with setup instructions until credentials/impl are wired in
+    adapter.connect()  # Upstox still raises NotImplementedError until that adapter is built out
+
+    if args.broker != "shoonya":
+        return
+
+    from alpha.quote_engine import QuoteEngine
+    from core.svi_surface import fit_surface_from_chain
+    from data.duckdb_store import DuckDBStore
+    from risk.portfolio import Portfolio
+
+    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    quote_engine = QuoteEngine()
+    portfolio = Portfolio()  # flat/no-inventory in this standalone live loop, same as prototype mode
+    store = DuckDBStore(args.db)
+
+    def on_snapshot(snapshot) -> None:
+        store.insert_snapshot(snapshot)
+        surface = fit_surface_from_chain(snapshot)
+        quotes = quote_engine.quote_snapshot(snapshot, surface=surface, portfolio=portfolio)
+        print(
+            f"[{snapshot.timestamp}] {snapshot.symbol} spot={snapshot.spot:.2f} "
+            f"contracts={len(snapshot.contracts)} quotes={len(quotes)}"
+        )
+
+    try:
+        adapter.subscribe(symbols, on_snapshot)
+        print(f"live mode: subscribed to {symbols}; streaming until Ctrl-C...")
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("live mode: interrupted, disconnecting...")
+    finally:
+        adapter.disconnect()
+        store.close()
 
 
 def run_backtest(args: argparse.Namespace) -> None:

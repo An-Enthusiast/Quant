@@ -47,17 +47,9 @@ def test_contract_mid_and_spread():
     assert c.spread == c.ask - c.bid
 
 
-def test_shoonya_and_upstox_adapters_raise_not_implemented_on_connect():
-    from core.shoonya_ws_adapter import ShoonyaCredentials, ShoonyaWebSocketAdapter
+def test_upstox_adapter_raises_not_implemented_on_connect():
+    # Shoonya's equivalent adapter is implemented -- see tests/test_shoonya_adapter.py.
     from core.upstox_protobuf_adapter import UpstoxCredentials, UpstoxProtobufAdapter
-
-    shoonya = ShoonyaWebSocketAdapter(ShoonyaCredentials("u", "p", "t", "v", "k", "i"))
-    assert shoonya.is_live
-    try:
-        shoonya.connect()
-        raise AssertionError("expected NotImplementedError")
-    except NotImplementedError:
-        pass
 
     upstox = UpstoxProtobufAdapter(UpstoxCredentials("cid", "secret", "redirect"))
     assert upstox.is_live

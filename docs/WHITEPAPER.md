@@ -49,10 +49,11 @@ data.
                      └───────────────┬───────────────────────────────┘
                                       │
           ┌───────────────────────────┼────────────────────────────┐
-          │ Phase 1 (zero-cost)        │           Phase 2 (live, stub)
+          │ Phase 1 (zero-cost)        │           Phase 2 (live)
           ▼                             ▼                            ▼
  NSEPythonAdapter              ShoonyaWebSocketAdapter      UpstoxProtobufAdapter
- (nsepython poll or fixture)   (NorenApi WS, not impl.)     (protobuf feed, not impl.)
+ (nsepython poll or fixture)   (NorenApi WS, unverified      (protobuf feed, not impl.)
+                                 vs. a live account -- §3)
           │                             │                            │
           └───────────────┬─────────────┴────────────────────────────┘
                             ▼
@@ -103,18 +104,60 @@ live HTTP call for a recorded/synthetic JSON file of the exact same shape
 SVI fitting, quoting, backtesting — is exercised identically whether or not
 live network access to `nseindia.com` is available.
 
-### Phase 2 — live streaming (scaffolded, not implemented)
+### Phase 2 — live streaming (Shoonya implemented, unverified against a live account; Upstox still a stub)
 
 `core.shoonya_ws_adapter.ShoonyaWebSocketAdapter` and
 `core.upstox_protobuf_adapter.UpstoxProtobufAdapter` implement the same
-`MarketDataInterface` ABC. Both `connect()` methods currently raise a
-`NotImplementedError` with a pointer to exactly what remains: the broker
-login/OAuth handshake, instrument-token subscription, and the
-tick-schema → `OptionContract` mapping (documented in each module's
-docstring). Because both adapters honor the same interface as
+`MarketDataInterface` ABC. Because both adapters honor the same interface as
 `NSEPythonAdapter`, switching `main.py --mode live --broker shoonya` in
 requires **zero** changes to `core/pricer_bindings.py`,
 `alpha/quote_engine.py`, `risk/*`, or `backtest/*`.
+
+**Shoonya (Finvasia).** Built against the publicly documented NorenApi
+REST/websocket protocol (the same backend several Indian discount brokers
+run under different branding) -- chosen over Upstox for this first Phase 2
+adapter because the API itself is free with no subscription tier, and the
+protocol is plain JSON over REST+websocket rather than requiring a compiled
+`.proto` schema. `connect()` performs the real `QuickAuth` login handshake
+(SHA256-hashed password, a live TOTP code via `pyotp`, SHA256(uid|api_key)
+as the app key) and opens the NorenWSTP websocket; `subscribe()` downloads
+and parses Shoonya's daily NFO symbol-master file to resolve option
+instrument tokens for the requested underlying, plus a well-known NSE index
+token for spot, and sends a touchline subscription; `_on_tick` merges
+incoming `tk`/`tf` touchline packets onto the last known `OptionContract`
+per (expiry, strike, option_type) -- `tf` packets are partial (changed
+fields only), so unset fields are left untouched rather than zeroed.
+`change_in_oi` is computed as `oi - poi` (previous day's closing OI, cached
+from whichever tick first reports it), mirroring how `core/option_chain.py`
+and every other adapter already define that field.
+
+**Status: implemented but not yet verified against a real account.** No
+Finvasia/Shoonya credentials were available in this development
+environment, so everything above is covered by unit tests against
+fixture-shaped payloads matching the documented schema (`tests/
+test_shoonya_adapter.py`) -- login-payload construction, symbol-master CSV
+parsing, and tick-merge semantics -- not by an actual login or live tick.
+Two specific pieces are flagged in the module's own docstring as needing
+reconfirmation against a live symbol-master download before this adapter
+is trusted in production: the exact CSV column names Shoonya's NFO symbol
+master uses, and the two hardcoded NSE index tokens used to source spot
+(`26000`/`26009` for Nifty/BankNifty -- stable, widely-cited values across
+NorenApi-backed brokers, but unverified here). `scripts/
+shoonya_live_smoke_test.py` (mirroring `scripts/live_pull_smoke_test.py`'s
+safety conventions -- explicit `--yes-hit-live-shoonya` flag, credentials
+read only from environment variables, isolated DB path, no secret material
+ever printed) is the intended first real-account verification step once
+credentials are available; `main.py --mode live --broker shoonya` reads the
+same `SHOONYA_*` environment variables for the longer-running operational
+loop (subscribe → SVI refit → quote → DuckDB insert per tick, the live
+analogue of `--mode prototype`).
+
+**Upstox** remains exactly the Phase 1 scaffold: `connect()` raises
+`NotImplementedError` pending the OAuth2 handshake and compiling
+`MarketDataFeedV3.proto`. Not attempted yet -- Shoonya was the more
+tractable first target (see above); Upstox's `full` feed reporting
+server-side Greeks/IV (a free cross-check against this project's own
+pricer) remains the reason to eventually build it too.
 
 ### Phase 1.5 — real historical EOD data via Bhavcopy
 
@@ -733,10 +776,15 @@ exact parameters.
    immediately once a real intraday quote source is ingested (item 1
    below), which is also needed to validate the label itself against
    real fills/adverse-selection outcomes rather than a price-move proxy.
-3. **Live broker adapters.** `ShoonyaWebSocketAdapter` and
-   `UpstoxProtobufAdapter` need real credentials and the websocket/protobuf
-   handshake implemented per their module docstrings; the
-   `MarketDataInterface` contract they'll conform to is already fixed and
+3. **Live broker adapters.** `ShoonyaWebSocketAdapter`'s login handshake,
+   symbol-master resolution, and tick mapping are now implemented (§3) and
+   unit-tested against the documented schema, but unverified against a real
+   Finvasia/Shoonya account -- `scripts/shoonya_live_smoke_test.py` is the
+   next step once credentials are available, to confirm the symbol-master
+   CSV columns and index tokens match reality and that a real login/tick
+   round-trips end to end. `UpstoxProtobufAdapter` remains the original
+   scaffold, needing the OAuth2 handshake and compiled `.proto` schema
+   (§3). The `MarketDataInterface` contract both conform to is fixed and
    tested against the Phase-1 adapter.
 4. **Joint (cross-expiry) SVI calibration.** Done -- sequential,
    calendar-floor-constrained calibration (§4.3) brought real-data
