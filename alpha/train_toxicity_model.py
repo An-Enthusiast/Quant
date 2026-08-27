@@ -1,27 +1,34 @@
 """CLI to train the order-flow toxicity classifier from real ingested
 history in DuckDB.
 
-NOT run as part of the current deliverable: see the module
-docstring in alpha/toxicity_model.py -- a real toxicity label needs several
-sequential snapshots per contract, and only a single
-fixture snapshot has been ingested so far (see docs/WHITEPAPER.md rollout notes). This
-script is fully functional and will train + save a real model once
-`python -m data.ingest --mode live --max-polls 0` (or a longer fixture-mode
-polling run) has accumulated enough sequential history in DuckDB; running
-it too early fails loudly with a clear "not enough history" message rather
-than silently training garbage.
+Works against any ingestion source with enough sequential history --
+`--mode bhavcopy`/`bhavcopy-local` real EOD data (§3 "Phase 1.5" of
+docs/WHITEPAPER.md) or, once available, `--mode live` intraday quotes.
+Fails loudly with an actionable message, rather than silently training on
+too little or degenerate data, in two cases: fewer than
+`MIN_DISTINCT_TIMESTAMPS + horizon` snapshots ingested, or a labeled
+dataset that ends up single-class.
 
 Label construction
 -------------------
 A quote at time t is labeled "toxic" (y=1) if the mid price moves against
-a passive quote posted at the touch by more than the then-quoted spread
-within the next `horizon` snapshots -- i.e. a market maker resting at the
-bid/ask would have been adversely selected by more than it was being paid
-to take on that risk. This is a standard proxy for adverse-selection risk
-in the market-making toxicity literature (informed-flow detection in the
-spirit of Easley/O'Hara-style VPIN work), not a sophisticated learned
-label -- it's a reasonable default to get a real pipeline running; swap in
-a better-validated label as real data accumulates.
+a passive quote posted at the touch by more than the "was this move big
+enough to matter" threshold within the next `horizon` snapshots -- i.e. a
+market maker resting at the bid/ask would have been adversely selected by
+more than it was being paid to take on that risk. This is a standard proxy
+for adverse-selection risk in the market-making toxicity literature
+(informed-flow detection in the spirit of Easley/O'Hara-style VPIN work),
+not a sophisticated learned label -- it's a reasonable default to get a
+real pipeline running; swap in a better-validated label as real data
+accumulates.
+
+The threshold is the then-quoted spread when one is available (intraday
+quote data), or `MIN_RELATIVE_MOVE_THRESHOLD` (a percentage of mid) when
+it isn't -- EOD-only sources like Bhavcopy report bid=ask=0 for every row,
+so spread alone would degenerate into "labeled toxic whenever the price
+moved at all," which swamps the label with noise rather than signal (see
+`alpha/features.py::compute_features` for the matching `mid` fallback that
+makes this threshold computable in the first place).
 """
 
 from __future__ import annotations
@@ -31,6 +38,7 @@ import logging
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from alpha.features import FEATURE_COLUMNS, compute_features
@@ -40,6 +48,17 @@ from data.duckdb_store import DuckDBStore
 logger = logging.getLogger(__name__)
 
 MIN_DISTINCT_TIMESTAMPS = 5
+
+# Fallback "did this move enough to matter" threshold, as a fraction of
+# mid, used only when `spread` is zero for a row. `spread` is the natural
+# threshold for intraday quote data (was the forward move bigger than what
+# a resting quote was being paid to take on?), but EOD-only sources (e.g.
+# NSE Bhavcopy, see docs/WHITEPAPER.md) report bid=ask=0 for every row, so
+# spread is always 0 there. Using it directly would label literally any
+# nonzero day-to-day price change as "toxic" -- not a meaningful
+# adverse-selection signal, just noise. This is a reasonable default, not
+# a validated-on-real-data choice -- see this module's docstring.
+MIN_RELATIVE_MOVE_THRESHOLD = 0.01
 
 
 def build_labels(features_df: pd.DataFrame, horizon: int = 3) -> pd.DataFrame:
@@ -51,7 +70,10 @@ def build_labels(features_df: pd.DataFrame, horizon: int = 3) -> pd.DataFrame:
     grp = df.groupby(["expiry", "strike", "option_type"], group_keys=False)
     df["mid_fwd"] = grp["mid"].shift(-horizon)
     fwd_move = (df["mid_fwd"] - df["mid"]).abs()
-    df["toxic"] = (fwd_move > df["spread"]).astype(int)
+    effective_threshold = np.where(
+        df["spread"] > 0, df["spread"], MIN_RELATIVE_MOVE_THRESHOLD * df["mid"].abs()
+    )
+    df["toxic"] = (fwd_move > effective_threshold).astype(int)
     return df.dropna(subset=["mid_fwd"])
 
 

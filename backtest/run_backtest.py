@@ -22,7 +22,7 @@ import argparse
 import logging
 from datetime import datetime
 
-from backtest.event_engine import BacktestConfig, BacktestEngine
+from backtest.event_engine import BacktestConfig, BacktestEngine, InsufficientQuoteDataError
 from backtest.performance import build_report
 from backtest.synthetic_ticks import generate_tick_series
 from core.option_chain import OptionChainSnapshot
@@ -99,6 +99,12 @@ def main() -> None:
     parser.add_argument("--n-ticks", type=int, default=180)
     parser.add_argument("--tick-interval-sec", type=float, default=5.0)
     parser.add_argument("--max-net-delta", type=float, default=300.0)
+    parser.add_argument(
+        "--allow-quoteless-data",
+        action="store_true",
+        help="Run even if the data source has no real bid/ask (e.g. EOD Bhavcopy) -- the resulting "
+        "P&L/Sharpe numbers will not be meaningful; see backtest.event_engine.InsufficientQuoteDataError",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -120,7 +126,11 @@ def main() -> None:
     )
     config = BacktestConfig(risk_limits=limits)
     engine = BacktestEngine(config)
-    result = engine.run(snapshots_by_symbol)
+    try:
+        result = engine.run(snapshots_by_symbol, allow_quoteless_data=args.allow_quoteless_data)
+    except InsufficientQuoteDataError as exc:
+        print(f"ERROR: {exc}")
+        raise SystemExit(1) from None
 
     periods_per_year = SECONDS_PER_TRADING_YEAR / max(args.tick_interval_sec, 1e-9)
     pnl_values = [v for _, v in result.pnl_curve]

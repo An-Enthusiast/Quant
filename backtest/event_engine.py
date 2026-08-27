@@ -40,6 +40,40 @@ from risk.risk_limits import RiskLimits
 
 logger = logging.getLogger(__name__)
 
+# Minimum fraction of contract-ticks that must carry a real (bid > 0 and
+# ask > 0) quote before the engine will run against a dataset by default.
+# Synthetic ticks (backtest/synthetic_ticks.py) and genuine intraday quote
+# feeds sit near 100%; EOD-only sources like NSE Bhavcopy sit at exactly
+# 0% (bid=ask=0 for every row -- see docs/WHITEPAPER.md). This threshold
+# just needs to cleanly separate those two cases, not be finely tuned.
+MIN_QUOTE_COVERAGE = 0.5
+
+
+class InsufficientQuoteDataError(RuntimeError):
+    """Raised when the input snapshots don't carry real bid/ask quotes.
+
+    backtest/order_book.py's fill model checks whether the next tick's
+    touch crosses a resting quote's price; with bid=ask=0 (EOD settlement
+    data, not a quote feed), "next tick's best_ask <= my bid" is trivially
+    true for every positive bid price, producing a torrent of spurious
+    fills and meaningless P&L rather than an error -- which is worse, not
+    better, since it looks like a normal backtest result. This exception
+    turns that silent-garbage failure mode into a loud, actionable one.
+    """
+
+
+def quote_coverage(snapshots_by_symbol: dict[str, list[OptionChainSnapshot]]) -> float:
+    """Fraction of (symbol, tick, contract) rows with a real bid/ask quote."""
+    total = 0
+    quoted = 0
+    for snapshots in snapshots_by_symbol.values():
+        for snapshot in snapshots:
+            for c in snapshot.contracts:
+                total += 1
+                if c.bid > 0 and c.ask > 0:
+                    quoted += 1
+    return quoted / total if total else 0.0
+
 
 @dataclass(slots=True, frozen=True)
 class BacktestConfig:
@@ -85,7 +119,22 @@ class BacktestEngine:
 
         self.result = BacktestResult()
 
-    def run(self, snapshots_by_symbol: dict[str, list[OptionChainSnapshot]]) -> BacktestResult:
+    def run(
+        self, snapshots_by_symbol: dict[str, list[OptionChainSnapshot]], allow_quoteless_data: bool = False
+    ) -> BacktestResult:
+        coverage = quote_coverage(snapshots_by_symbol)
+        if coverage < MIN_QUOTE_COVERAGE and not allow_quoteless_data:
+            raise InsufficientQuoteDataError(
+                f"Only {coverage:.0%} of contract-ticks carry a real bid/ask quote (need >= "
+                f"{MIN_QUOTE_COVERAGE:.0%}). This backtester's fill model needs genuine touch data; "
+                "EOD-only sources (e.g. NSE Bhavcopy) report bid=ask=0 for every row, which produces "
+                "spurious 'crossed the touch' fills and meaningless P&L (see docs/WHITEPAPER.md §7). "
+                "Use synthetic tick data (backtest/run_backtest.py --source synthetic) or real intraday "
+                "quotes once available (Phase 2 broker adapters) instead. Pass allow_quoteless_data=True "
+                "(--allow-quoteless-data on the CLI) only if you understand the resulting numbers are not "
+                "meaningful and want to see the mechanics run anyway."
+            )
+
         ticks: list[tuple[datetime, str, OptionChainSnapshot]] = [
             (snap.timestamp, symbol, snap) for symbol, snaps in snapshots_by_symbol.items() for snap in snaps
         ]

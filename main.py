@@ -96,7 +96,7 @@ def run_live(args: argparse.Namespace) -> None:
 
 
 def run_backtest(args: argparse.Namespace) -> None:
-    from backtest.event_engine import BacktestConfig, BacktestEngine
+    from backtest.event_engine import BacktestConfig, BacktestEngine, InsufficientQuoteDataError
     from backtest.performance import build_report
     from backtest.run_backtest import SECONDS_PER_TRADING_YEAR, _generate_synthetic_session, _snapshots_from_duckdb
     from data.duckdb_store import DuckDBStore
@@ -115,7 +115,11 @@ def run_backtest(args: argparse.Namespace) -> None:
         max_net_vega={s: None for s in snapshots_by_symbol},
     )
     engine = BacktestEngine(BacktestConfig(risk_limits=limits))
-    result = engine.run(snapshots_by_symbol)
+    try:
+        result = engine.run(snapshots_by_symbol, allow_quoteless_data=args.allow_quoteless_data)
+    except InsufficientQuoteDataError as exc:
+        print(f"ERROR: {exc}")
+        raise SystemExit(1) from None
 
     periods_per_year = SECONDS_PER_TRADING_YEAR / max(args.tick_interval_sec, 1e-9)
     pnl_values = [v for _, v in result.pnl_curve]
@@ -152,6 +156,12 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--n-ticks", type=int, default=180)
     bt.add_argument("--tick-interval-sec", type=float, default=5.0)
     bt.add_argument("--max-net-delta", type=float, default=300.0)
+    bt.add_argument(
+        "--allow-quoteless-data",
+        action="store_true",
+        help="Run even if the data source has no real bid/ask (e.g. EOD Bhavcopy) -- resulting "
+        "P&L/Sharpe numbers will not be meaningful",
+    )
 
     return parser
 

@@ -280,11 +280,25 @@ Fitting each expiry slice independently (no joint cross-expiry constraint)
 means calendar arbitrage is a *possible* outcome, not a structurally
 excluded one — exactly why the check exists as a standalone, always-run
 report rather than an assumption. In the synthetic surfaces used for
-development, 1–2 of 2 calendar pairs typically pass; an occasional independent-fit
-violation is realistic and is intentionally left visible in
-`VolSurface.no_arbitrage_report()` rather than silently patched, so a
-production deployment has a real signal to alert on or to feed into a
-joint (rather than per-slice) calibration if it fires too often.
+initial development, 1–2 of 2 calendar pairs typically pass. **Measured
+against the full real 26-day Bhavcopy archive** (§3 "Phase 1.5", all
+expiries, both underlyings -- not a sample): butterfly violations are
+uncommon (6.0% of NIFTY slices, 0.0% of BankNifty), but **calendar
+violations are the norm, not the exception, on real data** (83.3% of
+NIFTY expiry-pairs, 78.9% of BankNifty). Convergence (in the strict
+`rmse < 1e-4` sense) also drops on real data versus the clean synthetic
+fixtures -- 54% of NIFTY slices, 80% of BankNifty -- reflecting genuine
+local noise in real smiles that a smooth 5-parameter SVI curve can't fully
+capture; the fits are still usable (median RMSE 1.75e-2 / 6.0e-3
+respectively) but not textbook-tight. None of this crashes or produces
+unusable output (0 exceptions across all 52 day×symbol fits) -- it's an
+honest signal that per-slice independent calibration is a materially
+bigger gap on real data than the synthetic dev data suggested, which
+raises the priority of the joint-calibration item in §9 from "nice to
+have" to "worth doing before the surface output is used for anything
+that assumes calendar consistency" (e.g. calendar-spread risk). It
+remains intentionally visible via `VolSurface.no_arbitrage_report()`
+rather than silently patched.
 
 **Measured throughput:** 18.1 µs per slice fit (40 points, C++ LM), i.e.
 ~55,000 full-slice calibrations/sec on one core — recalibrating the entire
@@ -342,19 +356,58 @@ computed in `alpha/features.py`:
 - **Volume imbalance**: change in cumulative traded volume since the
   previous snapshot
 
-**This project ships the full train/predict/save/load architecture, not a
-trained model.** A real toxicity label (did a quote posted at the touch
-actually get adversely selected shortly after?) needs substantial real
-sequential order-flow history, which isn't available yet (see §1's scope
-note). `tests/test_toxicity_model_plumbing.py` proves the pipeline
-executes correctly on a synthetic sklearn dataset — that is a code-path
-correctness check, explicitly not a claim of predictive validity.
-`alpha/train_toxicity_model.py` is fully functional against real ingested
-DuckDB history: it builds a forward-looking adverse-selection label (did
-the mid price move against a passive quote by more than the quoted spread
-within the next `horizon` snapshots?) and fails loudly with an actionable
-message if fewer than `MIN_DISTINCT_TIMESTAMPS + horizon` snapshots have
-been ingested, rather than silently training on too little data.
+`alpha/train_toxicity_model.py` builds a forward-looking adverse-selection
+label (did the mid price move against a passive quote by more than a "did
+this move enough to matter" threshold within the next `horizon`
+snapshots?) and fails loudly with an actionable message if fewer than
+`MIN_DISTINCT_TIMESTAMPS + horizon` snapshots have been ingested, rather
+than silently training on too little data. Two data-source-dependent
+caveats apply directly to `mid` and that threshold, both now exercised
+end to end against the real Bhavcopy archive:
+
+- `alpha/features.py::compute_features`'s `mid` mirrors
+  `core.option_chain.OptionContract.mid`'s fallback: `(bid+ask)/2` when
+  quoted, else `ltp`. This matters beyond cosmetics for EOD-only data
+  (Bhavcopy reports bid=ask=0 for every row) -- without the fallback,
+  `mid` was a *constant* `0.0` across an entire month of real history,
+  which didn't just weaken the label, it made it entirely degenerate
+  (100% single-class, `ToxicityClassifier` correctly refused to train).
+  Fixed; `tests/test_features.py` regression-tests the fallback directly.
+- The label's "did this move enough to matter" threshold is the
+  then-quoted spread for intraday data, or `MIN_RELATIVE_MOVE_THRESHOLD`
+  (1% of mid, `alpha/train_toxicity_model.py`) when spread is always
+  zero (EOD data) -- using spread directly there would label *any*
+  nonzero day-to-day price change as "toxic," pure noise rather than
+  signal. `tests/test_train_toxicity_labels.py` covers both branches.
+
+With both fixes, training against the full real 26-day archive succeeds
+for both underlyings and produces a non-degenerate, reasonably balanced
+label (`python -m alpha.train_toxicity_model --symbol NIFTY`: 36,168
+samples, 56.3% toxic; `--symbol BANKNIFTY`: 20,996 samples, 40.1% toxic).
+Feature importances are exactly what the data source should produce:
+`ofi` and `spread_velocity` at 0.0 importance for both underlyings (they
+carry no information -- see below), `delta_oi` (~72%) and
+`volume_imbalance` (~28%) carrying all the learned signal. This is a real
+trained model on real NIFTY/BANKNIFTY history, not synthetic data -- but
+it is **not a validated trading signal**: the label is a reasonable,
+undocumented-against-real-outcomes proxy (§ above), the feature set is
+missing two of its four intended signals for this data source (below),
+and no walk-forward/out-of-sample evaluation has been done. Treat it as
+"the pipeline produces a real model end to end," not "this model is fit
+to trade on."
+
+**Structural limitation of Bhavcopy-sourced features, not a bug:**
+Bhavcopy is an EOD settlement report with no bid/ask depth, so
+order-flow-imbalance and spread-velocity are exactly `0.0` for every row
+by construction (0% nonzero, measured) -- there is no resting-quantity or
+spread signal to compute from a report that has neither. Only `delta_oi`
+and `volume_imbalance` carry real signal from this source (confirmed:
+~50% and ~38% nonzero respectively across the two underlyings). Both
+features remain fully wired up (so they activate immediately once a real
+intraday quote source -- Phase 2 broker adapters -- is ingested), and
+`tests/test_toxicity_model_plumbing.py` continues to prove the
+train/predict/save/load code path in isolation on a synthetic sklearn
+dataset for fast, deterministic CI coverage.
 
 ### 5.3 Quote engine: combining AS with inventory skew and toxicity
 
@@ -427,6 +480,26 @@ price-improves the current touch). `backtest/execution_sim.py` separately
 models aggressive (market) fills for the hedging engine's futures orders —
 half-spread plus linear market impact.
 
+**Quote-coverage guard.** This fill model needs a genuine touch: "next
+tick's best_ask <= my bid" is the correctness condition for a fill, but
+it degenerates for a data source with no real bid/ask (bid=ask=0, e.g.
+EOD Bhavcopy, §3 "Phase 1.5") into being trivially true for *every*
+positive-priced buy quote on *every* tick, while sell-side quotes almost
+never fill (best_bid is also always 0). Running the Bhavcopy-ingested
+26-day archive through the backtester confirmed this concretely: 41,256
+fills across 26 daily ticks and a P&L of roughly -101 million -- the
+engine effectively buys the entire chain every day with no offsetting
+sells. Rather than let that run silently (a completed backtest with a
+plausible-looking report is a worse failure mode than an error),
+`BacktestEngine.run` now computes `quote_coverage` up front -- the
+fraction of contract-ticks with a real `bid > 0 and ask > 0` -- and raises
+`InsufficientQuoteDataError` by default below `MIN_QUOTE_COVERAGE` (50%,
+chosen only to cleanly separate "real quotes" from "EOD settlement data,"
+not finely tuned). `--allow-quoteless-data` (CLI) /
+`allow_quoteless_data=True` (API) opts back into the old silent behavior
+for anyone who explicitly wants to see the mechanics run anyway, having
+been told the resulting numbers aren't meaningful.
+
 ### 7.2 Event loop
 
 `backtest/event_engine.py::BacktestEngine` replays a chronological,
@@ -482,6 +555,17 @@ about strategy edge.** Two caveats specifically:
    configs against each other) as informative; treat the absolute number
    as an artifact of the annualization convention over a 15-minute sample,
    not a real risk-adjusted-return estimate.
+
+`backtest.run_backtest --source duckdb` against the real Bhavcopy archive
+is refused by default by the quote-coverage guard described in §7.1 (0%
+of contract-ticks carry a real bid/ask -- exactly the case that guard
+exists for). This is expected, not a bug: the tick-level backtester's
+*intended* real-data path is real intraday quotes (Phase 2 broker
+adapters, §3), not EOD settlement data; EOD data's intended path is §4's
+SVI-fitting and §6's risk/hedging pipeline, both of which run cleanly
+against it (confirmed against the full real archive, not a sample --
+463/468 NIFTY and 154/156 BankNifty expiry-slices fit with zero
+exceptions across all 26 days).
 
 ---
 
@@ -557,24 +641,31 @@ exact parameters.
    today, Phase 2 broker adapters for real intraday quotes once
    credentials are available, `nsepython`/fixture mode for local
    development in between.
-2. **Toxicity model training.** Once real sequential history exists,
-   `python -m alpha.train_toxicity_model --symbol NIFTY` trains a real
-   model from it; the label definition in that script's docstring is a
-   reasonable default, not a validated-on-real-data choice — expect to
-   iterate on it once real fills/adverse-selection outcomes are
-   observable.
+2. **Toxicity model training.** Done against the real Bhavcopy archive
+   for both underlyings (§5.2) -- `python -m alpha.train_toxicity_model
+   --symbol NIFTY` (or `BANKNIFTY`) now trains and saves a real,
+   non-degenerate model. What's still open: the label definition (§5.2)
+   is a reasonable default, not a validated-on-real-outcomes choice, and
+   two of the four features are structurally zero for EOD-only data
+   (order-flow imbalance, spread velocity) -- both will activate
+   immediately once a real intraday quote source is ingested (item 1
+   below), which is also needed to validate the label itself against
+   real fills/adverse-selection outcomes rather than a price-move proxy.
 3. **Live broker adapters.** `ShoonyaWebSocketAdapter` and
    `UpstoxProtobufAdapter` need real credentials and the websocket/protobuf
    handshake implemented per their module docstrings; the
    `MarketDataInterface` contract they'll conform to is already fixed and
    tested against the Phase-1 adapter.
 4. **Joint (cross-expiry) SVI calibration.** Current calibration is
-   per-slice; the occasional calendar-arbitrage violation surfaced by
-   `VolSurface.no_arbitrage_report()` (§4.3) would be structurally
-   eliminated by a joint calibration that constrains later-expiry minimum
-   variance to dominate earlier-expiry minimum variance during the fit
-   itself, at the cost of a more complex (coupled, higher-dimensional)
-   optimization.
+   per-slice; measured against the full real Bhavcopy archive (§4.3),
+   calendar-arbitrage violations aren't occasional -- they hit 78-83% of
+   expiry-pairs on real data. A joint calibration that constrains
+   later-expiry minimum variance to dominate earlier-expiry minimum
+   variance during the fit itself would structurally eliminate this, at
+   the cost of a more complex (coupled, higher-dimensional) optimization.
+   Given how often it fires on real data, this is now the highest-value
+   remaining item in this list for anything downstream that assumes
+   calendar consistency (e.g. calendar-spread risk).
 5. **Order-book fidelity.** The backtester's fill model (§7.1) is a
    documented approximation appropriate to touch+volume data; real L2/L3
    depth from a live broker feed (Phase 2) would let the backtester graduate

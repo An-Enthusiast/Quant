@@ -93,6 +93,7 @@ def test_compute_features_on_multi_tick_history():
                     "oi": c.oi,
                     "change_in_oi": c.change_in_oi,
                     "volume": c.volume,
+                    "ltp": c.ltp,
                 }
             )
     df = pd.DataFrame(rows)
@@ -102,3 +103,6 @@ def test_compute_features_on_multi_tick_history():
     for col in FEATURE_COLUMNS:
         assert col in features.columns
     assert features["ofi"].between(-1.0, 1.0).all()
+    # These synthetic ticks have real bid/ask, so mid should come from the
+    # book, not fall back to ltp.
+    assert (features["mid"] == (features["bid"] + features["ask"]) / 2.0).all()

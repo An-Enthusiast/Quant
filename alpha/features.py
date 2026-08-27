@@ -42,11 +42,23 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     snapshot -- the first observation of a contract in the window has no
     predecessor, so its delta-based features are 0 (delta_oi falls back to
     the exchange-reported change_in_oi instead).
+
+    `df` must include an `ltp` column (present on every row returned by
+    `data.duckdb_store.DuckDBStore.query_range`, per `data/schema.sql`'s
+    `NOT NULL` constraint). `mid` mirrors `core.option_chain.OptionContract
+    .mid`'s fallback exactly: `(bid + ask) / 2` when both are quoted,
+    else `ltp`. This matters beyond cosmetics -- EOD-only sources (e.g.
+    NSE Bhavcopy, see docs/WHITEPAPER.md) report `bid = ask = 0` for every
+    row; without the fallback, `mid` would be a constant `0.0` for that
+    entire data source, silently making every mid-price-based signal
+    (including `alpha/train_toxicity_model.py`'s forward-looking label)
+    degenerate rather than merely low-signal.
     """
     out = df.sort_values([*_GROUP_KEYS, "ts"]).reset_index(drop=True).copy()
     grp = out.groupby(_GROUP_KEYS, group_keys=False)
 
-    out["mid"] = (out["bid"] + out["ask"]) / 2.0
+    has_quote = (out["bid"] > 0) & (out["ask"] > 0)
+    out["mid"] = np.where(has_quote, (out["bid"] + out["ask"]) / 2.0, out["ltp"])
     out["spread"] = out["ask"] - out["bid"]
     out["ofi"] = order_flow_imbalance(out["bid_qty"].to_numpy(dtype=float), out["ask_qty"].to_numpy(dtype=float))
 
