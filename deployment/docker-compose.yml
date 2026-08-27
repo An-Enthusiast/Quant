@@ -1,0 +1,16 @@
+services:
+  quant-engine:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    image: quant-engine:latest
+    volumes:
+      # Persists the DuckDB store on the host across container restarts.
+      - ../data/db:/app/data/db
+    environment:
+      - PYTHONUNBUFFERED=1
+    # Defaults to fixture-mode prototype (no live NSE access required);
+    # override to run live/backtest, e.g.:
+    #   docker compose run quant-engine --mode backtest --source synthetic
+    command: ["--mode", "prototype", "--fixture", "--max-polls", "0"]
+    restart: unless-stopped
