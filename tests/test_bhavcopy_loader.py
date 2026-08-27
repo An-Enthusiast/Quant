@@ -18,11 +18,14 @@ from pathlib import Path
 
 from core.option_chain import OptionType
 from core.svi_surface import fit_surface_from_chain
-from data.bhavcopy_loader import bhavcopy_url, parse_bhavcopy_csv_text
+from data.bhavcopy_loader import bhavcopy_url, ingest_local_archive, load_local_archive, parse_bhavcopy_csv_text
+from data.duckdb_store import DuckDBStore
 
 FIXTURE_PATH = Path(__file__).resolve().parents[1] / "data" / "sample_data" / "fo_bhavcopy_sample.csv"
 FIXTURE_TRADE_DATE = date(2026, 8, 26)
 FIXTURE_TIMESTAMP = datetime.combine(FIXTURE_TRADE_DATE, time(15, 30))
+
+LOCAL_ARCHIVE_DIR = Path(__file__).resolve().parents[1] / "data" / "sample_data" / "bhavcopy_history"
 
 
 def _load_fixture_text() -> str:
@@ -86,3 +89,40 @@ def test_svi_surface_fits_from_bhavcopy_derived_chain():
     e0 = sorted(surface.slices.keys())[0]
     atm_iv = surface.iv(e0, snapshots["NIFTY"].spot)
     assert 0.02 < atm_iv < 2.0
+
+
+# --- Local archive (data/sample_data/bhavcopy_history/) -- a real,
+# multi-week set of Bhavcopy days pre-fetched and checked into the repo so
+# ingestion works with zero network calls (see data/bhavcopy_loader.py's
+# module docstring and `python -m data.ingest --mode bhavcopy-local`). ---
+
+
+def test_local_archive_directory_exists_and_has_many_real_days():
+    assert LOCAL_ARCHIVE_DIR.is_dir()
+    files = sorted(LOCAL_ARCHIVE_DIR.glob("bhavcopy_*.csv"))
+    assert len(files) >= 20, "expected roughly a month of trading days checked in"
+
+
+def test_load_local_archive_returns_chronological_real_snapshots():
+    by_symbol = load_local_archive(LOCAL_ARCHIVE_DIR, ["NIFTY", "BANKNIFTY"])
+    assert set(by_symbol.keys()) == {"NIFTY", "BANKNIFTY"}
+
+    nifty_days = by_symbol["NIFTY"]
+    assert len(nifty_days) >= 20
+    timestamps = [snap.timestamp for snap in nifty_days]
+    assert timestamps == sorted(timestamps)
+    assert len(set(timestamps)) == len(timestamps)  # one snapshot per day, no duplicates
+
+    for snap in nifty_days:
+        assert snap.spot > 0
+        assert len(snap.contracts) > 0
+
+
+def test_ingest_local_archive_inserts_all_rows(tmp_path):
+    db_path = tmp_path / "local_archive_test.duckdb"
+    with DuckDBStore(db_path) as store:
+        rows = ingest_local_archive(store, LOCAL_ARCHIVE_DIR, ["NIFTY", "BANKNIFTY"])
+        assert rows > 0
+        assert store.row_count() == rows
+        # Real multi-day history should have more than one distinct timestamp.
+        assert len(store.distinct_timestamps("NIFTY")) >= 20

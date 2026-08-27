@@ -153,6 +153,21 @@ doesn't have.
 weekends/holidays, which simply have no published file -- not an error
 condition) into DuckDB in one command.
 
+**Local archive, for network-restricted environments.** Not every
+environment this project runs in can reach `nseindia.com` at all -- an
+earlier development sandbox's egress policy blocked it outright (§9).
+`python -m data.bhavcopy_loader build-archive` pre-fetches a date range
+and saves each day as a small, plain (unzipped) CSV filtered to the
+requested symbols' option/future rows under
+`data/sample_data/bhavcopy_history/`; `python -m data.ingest --mode
+bhavcopy-local` then ingests that directory with **zero network calls**.
+A real ~1-month archive (26 trading days, 22 Jul-26 Aug 2026, ~13MB) is
+checked into the repository this way -- `tests/test_bhavcopy_loader.py`
+loads it directly, and it's what lets a network-restricted deployment
+(or CI) exercise the full ingestion → SVI-fitting → risk pipeline against
+real multi-week NIFTY/BANKNIFTY OI and price history without needing
+live NSE access at all.
+
 ### DuckDB storage
 
 `data/schema.sql` defines a single append-only `option_chain_snapshots`

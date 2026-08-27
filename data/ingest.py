@@ -1,15 +1,21 @@
 """CLI orchestrator for populating DuckDB with option-chain snapshots.
 
-Three modes:
-  fixture   -- one-shot ingest from the recorded sample chain (no network).
-  live      -- continuous nsepython polling. NSE's own edge currently
-               rejects nsepython's scraped requests (403/404, see
-               docs/WHITEPAPER.md) -- kept for whenever that changes, or
-               for use against a less bot-gated deployment.
-  bhavcopy  -- backfills real historical daily EOD data from NSE's public
-               Bhavcopy archive (data/bhavcopy_loader.py). Confirmed
-               reliably reachable (no bot-blocking) -- this is currently
-               the best source of *real* NSE data this project has.
+Four modes:
+  fixture        -- one-shot ingest from the recorded sample chain (no network).
+  live           -- continuous nsepython polling. NSE's own edge currently
+                     rejects nsepython's scraped requests (403/404, see
+                     docs/WHITEPAPER.md) -- kept for whenever that changes, or
+                     for use against a less bot-gated deployment.
+  bhavcopy       -- backfills real historical daily EOD data from NSE's public
+                     Bhavcopy archive over the network (data/bhavcopy_loader.py).
+                     Confirmed reliably reachable (no bot-blocking) -- currently
+                     the best source of *real* NSE data this project has.
+  bhavcopy-local -- ingests real Bhavcopy days from a local directory of
+                     pre-fetched CSVs (data/sample_data/bhavcopy_history/,
+                     built with `python -m data.bhavcopy_loader build-archive`)
+                     -- zero network calls, for environments where nseindia.com
+                     isn't reachable at all (e.g. some cloud sandboxes; see
+                     docs/WHITEPAPER.md).
 
 Examples
 --------
@@ -17,6 +23,7 @@ Examples
     python -m data.ingest --mode live --symbols NIFTY,BANKNIFTY --interval 5 --max-polls 0
     python -m data.ingest --mode bhavcopy --symbols NIFTY,BANKNIFTY --lookback-days 10
     python -m data.ingest --mode bhavcopy --start-date 2026-08-01 --end-date 2026-08-26
+    python -m data.ingest --mode bhavcopy-local --symbols NIFTY,BANKNIFTY
 """
 
 from __future__ import annotations
@@ -25,9 +32,11 @@ import argparse
 import logging
 from datetime import datetime, timedelta
 
-from data.bhavcopy_loader import find_latest_available_bhavcopy, ingest_bhavcopy_range
+from data.bhavcopy_loader import find_latest_available_bhavcopy, ingest_bhavcopy_range, ingest_local_archive
 from data.duckdb_store import DuckDBStore
 from data.nsepython_poller import poll_forever
+
+DEFAULT_LOCAL_ARCHIVE_DIR = "data/sample_data/bhavcopy_history"
 
 
 def _run_bhavcopy(args: argparse.Namespace, symbols: list[str], store: DuckDBStore) -> None:
@@ -42,9 +51,17 @@ def _run_bhavcopy(args: argparse.Namespace, symbols: list[str], store: DuckDBSto
     print(f"Bhavcopy-ingested {rows} rows across {symbols} for {start}..{end}. Total rows in DB: {store.row_count()}")
 
 
+def _run_bhavcopy_local(args: argparse.Namespace, symbols: list[str], store: DuckDBStore) -> None:
+    rows = ingest_local_archive(store, args.local_dir, symbols)
+    print(
+        f"Bhavcopy-local-ingested {rows} rows across {symbols} from {args.local_dir} "
+        f"(no network used). Total rows in DB: {store.row_count()}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest NSE option-chain snapshots into DuckDB")
-    parser.add_argument("--mode", choices=["fixture", "live", "bhavcopy"], default="fixture")
+    parser.add_argument("--mode", choices=["fixture", "live", "bhavcopy", "bhavcopy-local"], default="fixture")
     parser.add_argument("--symbols", default="NIFTY,BANKNIFTY", help="Comma-separated underlyings")
     parser.add_argument("--interval", type=float, default=5.0, help="Seconds between polls (live mode)")
     parser.add_argument(
@@ -54,6 +71,9 @@ def main() -> None:
     parser.add_argument("--start-date", default=None, help="bhavcopy mode: YYYY-MM-DD (overrides --lookback-days)")
     parser.add_argument("--end-date", default=None, help="bhavcopy mode: YYYY-MM-DD")
     parser.add_argument("--request-delay", type=float, default=0.5, help="bhavcopy mode: seconds between requests")
+    parser.add_argument(
+        "--local-dir", default=DEFAULT_LOCAL_ARCHIVE_DIR, help="bhavcopy-local mode: directory of bhavcopy_*.csv files"
+    )
     parser.add_argument("--db", default="data/db/quant.duckdb")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
@@ -65,6 +85,9 @@ def main() -> None:
     with DuckDBStore(args.db) as store:
         if args.mode == "bhavcopy":
             _run_bhavcopy(args, symbols, store)
+            return
+        if args.mode == "bhavcopy-local":
+            _run_bhavcopy_local(args, symbols, store)
             return
 
         max_polls = None if args.max_polls == 0 else args.max_polls
