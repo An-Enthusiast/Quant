@@ -2,7 +2,7 @@
 
 Examples
 --------
-Fixture-mode one-shot ingest (this session's default -- no live NSE calls,
+Fixture-mode one-shot ingest (the current default -- no live NSE calls,
 see docs/WHITEPAPER.md):
 
     python -m data.ingest --mode fixture --symbols NIFTY,BANKNIFTY

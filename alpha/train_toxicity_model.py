@@ -1,10 +1,10 @@
 """CLI to train the order-flow toxicity classifier from real ingested
 history in DuckDB.
 
-NOT run as part of this environment's current deliverable: see the module
+NOT run as part of the current deliverable: see the module
 docstring in alpha/toxicity_model.py -- a real toxicity label needs several
-sequential snapshots per contract, and this session only has a single
-fixture snapshot ingested (see docs/WHITEPAPER.md rollout notes). This
+sequential snapshots per contract, and only a single
+fixture snapshot has been ingested so far (see docs/WHITEPAPER.md rollout notes). This
 script is fully functional and will train + save a real model once
 `python -m data.ingest --mode live --max-polls 0` (or a longer fixture-mode
 polling run) has accumulated enough sequential history in DuckDB; running

@@ -1,7 +1,7 @@
 """Synthetic multi-tick option-chain generator for the backtester.
 
-No live NSE tick history is available in this environment (see
-docs/WHITEPAPER.md rollout notes -- Phase 1 fixture ingestion this session
+No live NSE tick history is available yet (see
+docs/WHITEPAPER.md rollout notes -- Phase 1 fixture ingestion currently
 uses a single static snapshot, data/sample_data/generate_fixtures.py). The
 event-driven backtester needs a *chronological sequence* of snapshots to
 replay, so this module generates one: a GBM spot path drives this

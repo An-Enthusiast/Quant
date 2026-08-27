@@ -15,7 +15,7 @@ IMPORTANT -- this module ships the full train/predict/serialize
 architecture but is NOT shipped with a pretrained model. A real toxicity
 label (did a passive quote posted here actually get adversely selected
 shortly after?) requires substantial real historical sequential order-flow
-data, which isn't available in this environment (see
+data, which isn't available yet (see
 alpha/train_toxicity_model.py and docs/WHITEPAPER.md for the rollout plan).
 tests/test_toxicity_model_plumbing.py exercises train/predict/save/load on
 a tiny synthetic sklearn dataset -- that test proves the code path executes

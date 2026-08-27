@@ -1,6 +1,6 @@
 """Generates the synthetic option-chain fixtures used by fixture-mode
-ingestion, the unit tests, and the backtester in this environment (no live
-NSE access this session -- see docs/WHITEPAPER.md rollout notes).
+ingestion, the unit tests, and the backtester (no live
+NSE access yet -- see docs/WHITEPAPER.md rollout notes).
 
 Output JSON matches `nsepython.nse_optionchain_scrapper`'s real schema
 exactly (see core/nse_python_adapter.py's module docstring), so

@@ -1,6 +1,6 @@
 """CLI: run the event-driven backtest and print a performance report.
 
-No live/recorded NSE tick history is available in this environment (see
+No live/recorded NSE tick history is available yet (see
 docs/WHITEPAPER.md), so `--source synthetic` (the default) generates a
 GBM-driven synthetic multi-tick session per underlying
 (backtest/synthetic_ticks.py) and ingests it into a dedicated DuckDB file

@@ -1,6 +1,6 @@
 """Polling loop wiring `NSEPythonAdapter` (core/nse_python_adapter.py) into
 `DuckDBStore` (data/duckdb_store.py). Works identically in fixture mode
-(this session's default -- no live NSE calls) and live mode (once network
+(the current default -- no live NSE calls) and live mode (once network
 access to nseindia.com is available in a given deployment); only the
 `use_fixture` flag changes.
 """

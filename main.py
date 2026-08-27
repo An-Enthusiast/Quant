@@ -9,7 +9,7 @@ Non-Linear Risk Hedging Engine.
     Phase 1 (zero-cost): polls `NSEPythonAdapter` (core/nse_python_adapter.py),
     writes each snapshot to DuckDB, fits the SVI vol surface, and prints the
     resulting quotes each cycle. `--fixture` uses the recorded sample chain
-    instead of a live nseindia.com call (this environment's default -- see
+    instead of a live nseindia.com call (the current default -- see
     docs/WHITEPAPER.md).
 
 --mode live
