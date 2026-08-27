@@ -346,6 +346,46 @@ behavior (e.g. for direct before/after comparison).
 **Measured throughput (unconstrained fit):** 18.1 µs per slice fit (40
 points, C++ LM), i.e. ~55,000 full-slice calibrations/sec on one core.
 
+**End-to-end pipeline benchmark: C++ vs Python fallback, full real
+archive.** The microbenchmark above isolates the unconstrained fit; the
+number that matters in practice is the *whole* `fit_surface_from_chain`
+pipeline (IV inversion for every quote, base fit, and any calendar-floor
+escalation) against real data. `scripts/benchmark_cpp_vs_numba.py` runs
+that pipeline across the complete 26-day Bhavcopy archive under each
+backend (each in its own subprocess, since backend selection is cached at
+first import) and reports wall-clock time plus a correctness check:
+
+| | C++ engine | Python fallback (Numba + SciPy) | Speedup |
+|---|---|---|---|
+| NIFTY (463 slices) | 47.6s | 73.1s | 1.54x |
+| BankNifty (154 slices) | 16.9s | 33.5s | 1.98x |
+| **Total** | **65.3s** | **107.4s** | **1.65x** |
+
+Correctness: both backends fit the same 463/154 slices with 0 errors,
+near-identical convergence counts (450/440 NIFTY, 149/148 BankNifty) and
+mean RMSE agreeing to 4 significant figures (8.9011e-2 vs 8.9048e-2
+NIFTY) -- the tiny residual difference is expected, not a bug: the C++
+engine's hand-rolled Levenberg-Marquardt and SciPy's trust-region
+`least_squares` are different optimizers that can settle into very
+slightly different local optima from the same starting point on a mildly
+ill-posed problem, not two implementations of the identical algorithm.
+
+**Why 1.5-2x here, not the ~1.4x-in-isolation/55,000-fits-sec numbers
+above might suggest:** `calibrate_svi_slice_with_calendar_floor` (the
+calendar-consistency escalation refit, §4.3 "Joint calibration") *always*
+uses SciPy, in both backends -- extending the hand-rolled C++ LM with a
+second, differently-shaped penalty objective was deliberately judged not
+worth the risk for a step with no latency pressure (see that function's
+own docstring). Since 357/463 NIFTY slices and 100/154 BankNifty slices
+needed that escalation on this real archive, a large and *identical*
+share of the total wall time in both backends is spent in the same SciPy
+code path -- so the end-to-end speedup reflects "C++ for the base fit and
+IV inversion, SciPy for the shared calendar refit" against "SciPy/Numba
+for everything," not a clean apples-to-apples primitive comparison. This
+is the realistic number for what building `csrc/` actually buys on this
+project's real workload today, not the peak throughput the qengine
+extension is capable of in isolation.
+
 ### 4.4 Vectorized Greeks engine
 
 `core/greeks_numba.py` provides `@njit(parallel=True)` array versions of
