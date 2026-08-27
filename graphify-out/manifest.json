@@ -12,10 +12,10 @@
     "semantic_hash": "41f6d75f95801a3c43cff8b78c7b0c35"
   },
   "alpha/features.py": {
-    "mtime": 1787827914.0376222,
-    "seen": 1787831374.4101217,
-    "ast_hash": "9fdbf97b4261a5359cf3bf19731e2e3a",
-    "semantic_hash": "9fdbf97b4261a5359cf3bf19731e2e3a"
+    "mtime": 1787834032.2623525,
+    "seen": 1787834244.969875,
+    "ast_hash": "0ebafce06ea98530744f0aa3d0f29f2e",
+    "semantic_hash": "0ebafce06ea98530744f0aa3d0f29f2e"
   },
   "alpha/quote_engine.py": {
     "mtime": 1787827914.0378551,
@@ -30,10 +30,10 @@
     "semantic_hash": "321219c8ce5b76bf8bfdb16594c440c1"
   },
   "alpha/train_toxicity_model.py": {
-    "mtime": 1787827914.0401008,
-    "seen": 1787831374.4101264,
-    "ast_hash": "cf08fcc34902006ed9a0350384d224f7",
-    "semantic_hash": "cf08fcc34902006ed9a0350384d224f7"
+    "mtime": 1787834032.2829382,
+    "seen": 1787834244.970922,
+    "ast_hash": "904aa5cfb3aff422e9b9795d9306c1b8",
+    "semantic_hash": "904aa5cfb3aff422e9b9795d9306c1b8"
   },
   "backtest/__init__.py": {
     "mtime": 1787827914.0410888,
@@ -42,10 +42,10 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "backtest/event_engine.py": {
-    "mtime": 1787827914.0421257,
-    "seen": 1787831374.4101293,
-    "ast_hash": "4ba4cfa7b9b647123ffe4995e3be4d55",
-    "semantic_hash": "4ba4cfa7b9b647123ffe4995e3be4d55"
+    "mtime": 1787834032.3056197,
+    "seen": 1787834244.9714036,
+    "ast_hash": "d0f16f1a9b30f845314167b33a73b65d",
+    "semantic_hash": "d0f16f1a9b30f845314167b33a73b65d"
   },
   "backtest/execution_sim.py": {
     "mtime": 1787827914.0430868,
@@ -66,10 +66,10 @@
     "semantic_hash": "12515746916466a6e7617928310a9ef7"
   },
   "backtest/run_backtest.py": {
-    "mtime": 1787827914.0470245,
-    "seen": 1787831374.4101348,
-    "ast_hash": "985971b0d61833fb21861a168c570852",
-    "semantic_hash": "985971b0d61833fb21861a168c570852"
+    "mtime": 1787834032.324716,
+    "seen": 1787834244.9728384,
+    "ast_hash": "283902f91f9891d0e9e464630c0c9607",
+    "semantic_hash": "283902f91f9891d0e9e464630c0c9607"
   },
   "backtest/synthetic_ticks.py": {
     "mtime": 1787827914.048102,
@@ -120,10 +120,10 @@
     "semantic_hash": "bbdcf00810d3958688a805c5127ff206"
   },
   "core/svi_surface.py": {
-    "mtime": 1787827914.0550444,
-    "seen": 1787831374.4101467,
-    "ast_hash": "fb329b3f4d583be271280fbe5275f9fc",
-    "semantic_hash": "fb329b3f4d583be271280fbe5275f9fc"
+    "mtime": 1787834032.3470366,
+    "seen": 1787834244.9765866,
+    "ast_hash": "095cac1b4376a09eb7a9f710540aa177",
+    "semantic_hash": "095cac1b4376a09eb7a9f710540aa177"
   },
   "core/upstox_protobuf_adapter.py": {
     "mtime": 1787827914.0560443,
@@ -222,10 +222,10 @@
     "semantic_hash": "ec3d9f3d95129529f6cd6ba80478dde6"
   },
   "main.py": {
-    "mtime": 1787827914.0797563,
-    "seen": 1787831374.4101703,
-    "ast_hash": "a3b36445ad30939d9b87678401f2749f",
-    "semantic_hash": "a3b36445ad30939d9b87678401f2749f"
+    "mtime": 1787834032.3869085,
+    "seen": 1787834244.98448,
+    "ast_hash": "7fec1ab24cb61db1e6032874f15af723",
+    "semantic_hash": "7fec1ab24cb61db1e6032874f15af723"
   },
   "risk/__init__.py": {
     "mtime": 1787827914.082148,
@@ -264,10 +264,10 @@
     "semantic_hash": "3d432875eea2cb14a05d956bddcc9b74"
   },
   "tests/test_backtest_smoke.py": {
-    "mtime": 1787827914.0860186,
-    "seen": 1787831374.4101806,
-    "ast_hash": "a5a8e5a760a285265619827fc9359e51",
-    "semantic_hash": "a5a8e5a760a285265619827fc9359e51"
+    "mtime": 1787834032.4294355,
+    "seen": 1787834244.987202,
+    "ast_hash": "470e195561ea07965cb61c6447129921",
+    "semantic_hash": "470e195561ea07965cb61c6447129921"
   },
   "tests/test_bhavcopy_loader.py": {
     "mtime": 1787830420.9401908,
@@ -306,10 +306,10 @@
     "semantic_hash": "7084f23c3bc792501a168dd86e13d8e9"
   },
   "tests/test_svi.py": {
-    "mtime": 1787827914.089416,
-    "seen": 1787831374.4101899,
-    "ast_hash": "08d765ce8a5309b3f50ce52ba3dde21f",
-    "semantic_hash": "08d765ce8a5309b3f50ce52ba3dde21f"
+    "mtime": 1787834032.4678943,
+    "seen": 1787834244.9898388,
+    "ast_hash": "6c33310c91de0b06793deb132962f88e",
+    "semantic_hash": "6c33310c91de0b06793deb132962f88e"
   },
   "tests/test_toxicity_model_plumbing.py": {
     "mtime": 1787827914.0904152,
@@ -318,9 +318,27 @@
     "semantic_hash": "339e26a05a53a78aeba96150f326a2aa"
   },
   "tests/test_train_toxicity_labels.py": {
-    "mtime": 1787827914.0914407,
-    "seen": 1787831374.4101927,
-    "ast_hash": "f6ccd4952980fefdd4cd11884ca5f4e8",
-    "semantic_hash": "f6ccd4952980fefdd4cd11884ca5f4e8"
+    "mtime": 1787834032.503252,
+    "seen": 1787834244.9902794,
+    "ast_hash": "c5b4b2fe3048c2b4a57d312a44cc4fc5",
+    "semantic_hash": "c5b4b2fe3048c2b4a57d312a44cc4fc5"
+  },
+  ".claude/settings.local.json": {
+    "mtime": 1787831631.6488104,
+    "seen": 1787834244.9678254,
+    "ast_hash": "752ce7093341ccbb8af0d236d95c5ae3",
+    "semantic_hash": "752ce7093341ccbb8af0d236d95c5ae3"
+  },
+  "tests/test_backtest_quote_guard.py": {
+    "mtime": 1787834032.4074252,
+    "seen": 1787834244.9871995,
+    "ast_hash": "293a0014e608140f5dcbe2756a036477",
+    "semantic_hash": "293a0014e608140f5dcbe2756a036477"
+  },
+  "tests/test_features.py": {
+    "mtime": 1787834032.4439306,
+    "seen": 1787834244.9885218,
+    "ast_hash": "658dc5958bdeecbba9b8f908ee282c29",
+    "semantic_hash": "658dc5958bdeecbba9b8f908ee282c29"
   }
 }
