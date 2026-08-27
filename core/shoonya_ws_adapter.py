@@ -220,7 +220,11 @@ class ShoonyaWebSocketAdapter(MarketDataInterface):
         resp.raise_for_status()
         body = resp.json()
         if body.get("stat") != "Ok":
-            raise RuntimeError(f"Shoonya login failed: {body.get('emsg', body)}")
+            # Only ever surface the server's own "emsg" field, never the raw
+            # response body -- an unexpected/malformed response could in
+            # principle echo back request data, and this message may end up
+            # in logs or an exception report.
+            raise RuntimeError(f"Shoonya login failed: {body.get('emsg', 'no error message provided by server')}")
         self._session_token = body["susertoken"]
         self._open_websocket()
 

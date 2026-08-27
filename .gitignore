@@ -17,3 +17,14 @@ data/db/*.duckdb.wal
 *.pkl
 *.joblib
 dist/
+
+# Secrets -- broker credentials (SHOONYA_*, UPSTOX_*) must only ever live in
+# untracked local env files or the real environment, never in git. See
+# docs/WHITEPAPER.md "Safety & scope boundaries" and CLAUDE.md.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials.json

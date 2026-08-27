@@ -159,6 +159,40 @@ tractable first target (see above); Upstox's `full` feed reporting
 server-side Greeks/IV (a free cross-check against this project's own
 pricer) remains the reason to eventually build it too.
 
+### Safety & scope boundaries
+
+Two hard rules govern every live broker integration in this project, both
+enforced by `tests/test_broker_safety.py` (a keyword scan of every adapter
+file plus a check on `MarketDataInterface`'s method set) and restated for
+any future contributor -- human or AI -- in `CLAUDE.md` at the repo root:
+
+1. **Credentials are never committed, logged, or printed.** Broker
+   credentials (user id, password, TOTP secret, API key, session/access
+   tokens) are read only from environment variables at call time --
+   `ShoonyaCredentials`'s fields have no defaults, so a missing credential
+   fails loudly rather than silently falling back to an empty string. A
+   real `.env` file is gitignored (`.env`, `.env.*`); only `.env.example`,
+   which ships with empty placeholder values, is tracked. Error paths in
+   `core/shoonya_ws_adapter.py` and `scripts/shoonya_live_smoke_test.py`
+   surface only the server's own short error string (e.g. `emsg`) or an
+   exception's type/message, truncated -- never a raw response body,
+   session token, or credential value, which might otherwise end up
+   captured in a log file or CI output.
+2. **This project is market-data-only -- it never places, modifies, or
+   cancels a live order.** `MarketDataInterface` (§2) intentionally
+   exposes only `connect` / `disconnect` / `get_option_chain` /
+   `subscribe` / `is_live`; no broker adapter implements or calls an
+   order-placement endpoint (NorenApi's `PlaceOrder`/`ModifyOrder`/
+   `CancelOrder`, Upstox's `/v2/order`, or equivalent). `risk/
+   hedging_engine.py::compute_hedge_orders` and `backtest/
+   execution_sim.py` compute and simulate hedge sizing/fills for
+   analytics and backtesting only -- neither calls a live broker to
+   execute anything, and that boundary is deliberate, not an oversight to
+   be "completed" later. Any real order-execution capability would be a
+   materially different, higher-stakes project and requires the
+   repository owner's explicit, separate authorization -- it is
+   out of scope for this codebase as it stands.
+
 ### Phase 1.5 — real historical EOD data via Bhavcopy
 
 `nsepython`'s live scrape is unreliable in practice (§9) -- NSE's own edge
