@@ -463,10 +463,17 @@ exact parameters.
 
 ## 9. Limitations & Phase 2 Roadmap
 
-1. **Live data.** `NSEPythonAdapter` is real and schema-tested but hasn't
-   been run live yet (§1). Next step: run `python -m data.ingest --mode
-   live --max-polls 0` against `nseindia.com` from a machine with
-   that access, accumulate real sequential history in DuckDB.
+1. **Live data.** `NSEPythonAdapter` is real and schema-tested. A single,
+   deliberately conservative live-pull attempt (`scripts/live_pull_smoke_test.py`
+   -- one request, no retries, see that script's docstring for its safety
+   properties) confirmed the current development machine's outbound
+   network blocks `nseindia.com` entirely at the network layer, before
+   any request reaches NSE's servers. This is a local network restriction,
+   not an NSE anti-bot block or a code issue -- the adapter, parser, and
+   ingestion path are otherwise fully exercised against the fixture
+   schema (§3). Next step: run `python -m data.ingest --mode live
+   --max-polls 0` against `nseindia.com` from a machine without that
+   restriction, accumulate real sequential history in DuckDB.
 2. **Toxicity model training.** Once real sequential history exists,
    `python -m alpha.train_toxicity_model --symbol NIFTY` trains a real
    model from it; the label definition in that script's docstring is a
