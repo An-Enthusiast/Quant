@@ -27,9 +27,19 @@ Safety properties
     touches the synthetic dev DB, the checked-in fixture JSON files under
     data/sample_data/, or anything tests/ depends on.
 
+`--diagnostic` mode replicates `nsepython.nsefetch`'s own three-step
+session sequence (homepage -> option-chain page -> API call) directly
+with `requests`, but -- unlike `nsefetch`, which silently swallows a
+JSON-decode failure into `{}` -- reports each step's HTTP status code and
+a short, truncated snippet of the final response body. This is still a
+single pass (one request per step, no retries); it exists only to tell
+apart "blocked before reaching NSE," "NSE returned a non-200," and "NSE
+returned a challenge/CAPTCHA page instead of JSON."
+
 Usage
 -----
     python scripts/live_pull_smoke_test.py --yes-hit-live-nse --symbol NIFTY
+    python scripts/live_pull_smoke_test.py --yes-hit-live-nse --diagnostic
 """
 
 from __future__ import annotations
@@ -46,6 +56,50 @@ from data.duckdb_store import DuckDBStore  # noqa: E402
 
 SAFE_DB_PATH = "data/db/live_smoke_test.duckdb"
 MAX_ERROR_MESSAGE_LEN = 300
+MAX_BODY_SNIPPET_LEN = 250
+
+# Same session-priming sequence as nsepython.rahu.nsefetch (local mode):
+# two GETs to establish cookies NSE's front door expects, then the API call.
+_DIAGNOSTIC_HEADERS = {
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "accept-language": "en-US,en;q=0.9",
+    "user-agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+    ),
+}
+
+
+def run_diagnostic(symbol: str) -> None:
+    import requests
+
+    session = requests.Session()
+    steps = [
+        ("homepage", "https://www.nseindia.com"),
+        ("option-chain page", "https://www.nseindia.com/option-chain"),
+        ("api call", f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"),
+    ]
+    for label, url in steps:
+        try:
+            resp = session.get(url, headers=_DIAGNOSTIC_HEADERS, timeout=10)
+        except Exception as exc:
+            message = f"{type(exc).__name__}: {exc}"[:MAX_ERROR_MESSAGE_LEN]
+            print(f"[diagnostic] {label}: FAILED before a response was received -- {message}")
+            return
+
+        content_type = resp.headers.get("content-type", "?")
+        print(f"[diagnostic] {label}: status={resp.status_code} content-type={content_type} bytes={len(resp.content)}")
+
+        if label == "api call":
+            snippet = resp.text[:MAX_BODY_SNIPPET_LEN].replace("\n", " ").replace("\r", "")
+            print(f"[diagnostic] response body snippet: {snippet!r}")
+            if resp.status_code == 200 and content_type.startswith("application/json"):
+                print("[diagnostic] looks like valid JSON was returned -- the normal pull should work")
+            else:
+                print(
+                    "[diagnostic] not a 200 JSON response -- this is NSE's own front door rejecting the "
+                    "request (bot/WAF check, rate limiting, or similar), not a local network block"
+                )
 
 
 def main() -> None:
@@ -57,7 +111,17 @@ def main() -> None:
         help="Required acknowledgement that this makes a real outbound HTTPS request to nseindia.com",
     )
     parser.add_argument("--symbol", default="NIFTY", choices=["NIFTY", "BANKNIFTY"])
+    parser.add_argument(
+        "--diagnostic",
+        action="store_true",
+        help="Report each step's HTTP status/body instead of doing the normal (opaque) pull",
+    )
     args = parser.parse_args()
+
+    if args.diagnostic:
+        print(f"[diagnostic] replicating nsepython's session sequence for {args.symbol} (one pass, no retries)...")
+        run_diagnostic(args.symbol)
+        return
 
     print(f"[live-smoke-test] attempting ONE live nsepython pull for {args.symbol}...")
     print("[live-smoke-test] up to 3 sequential HTTPS requests, 10s timeout each (nsepython's own behavior)")

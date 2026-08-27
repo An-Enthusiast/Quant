@@ -463,17 +463,35 @@ exact parameters.
 
 ## 9. Limitations & Phase 2 Roadmap
 
-1. **Live data.** `NSEPythonAdapter` is real and schema-tested. A single,
-   deliberately conservative live-pull attempt (`scripts/live_pull_smoke_test.py`
-   -- one request, no retries, see that script's docstring for its safety
-   properties) confirmed the current development machine's outbound
-   network blocks `nseindia.com` entirely at the network layer, before
-   any request reaches NSE's servers. This is a local network restriction,
-   not an NSE anti-bot block or a code issue -- the adapter, parser, and
-   ingestion path are otherwise fully exercised against the fixture
-   schema (§3). Next step: run `python -m data.ingest --mode live
-   --max-polls 0` against `nseindia.com` from a machine without that
-   restriction, accumulate real sequential history in DuckDB.
+1. **Live data.** `NSEPythonAdapter` is real and schema-tested. Two
+   deliberately conservative live-pull attempts
+   (`scripts/live_pull_smoke_test.py` -- one request, no retries, see
+   that script's docstring for its safety properties) were made from two
+   different machines:
+   - From a network-restricted development machine, the outbound
+     connection to `nseindia.com` was blocked entirely before any request
+     reached NSE's servers -- a local network restriction, not an NSE
+     anti-bot block.
+   - From an unrestricted machine, `--diagnostic` mode (which reports each
+     step's raw HTTP status/body instead of relying on `nsefetch`'s opaque
+     wrapper) showed requests reaching NSE's real servers but being
+     rejected by NSE's own edge: a `403` on the initial homepage request
+     (no clean cookie handshake established) and a `404 Resource not
+     found` on the option-chain API call itself, rather than JSON. This
+     is a known, widely-reported characteristic of `nsepython`/NSE's
+     anti-bot layer, not a bug in this codebase -- the adapter, parser,
+     and ingestion path are otherwise fully exercised against the fixture
+     schema (§3).
+
+   `nsepython` remains useful for zero-cost local development against the
+   documented schema (fixture mode) and may work intermittently depending
+   on NSE's bot-detection posture at a given time, but should not be
+   relied on as a production data source -- Phase 2's broker adapters
+   (Shoonya/Upstox, §3) are the reliable path to live data. Next step if
+   pursuing `nsepython` further: investigate session/cookie handling more
+   closely (e.g. whether a real browser's TLS fingerprint or additional
+   headers are needed), but treat this as a research spike, not a
+   blocking dependency.
 2. **Toxicity model training.** Once real sequential history exists,
    `python -m alpha.train_toxicity_model --symbol NIFTY` trains a real
    model from it; the label definition in that script's docstring is a
