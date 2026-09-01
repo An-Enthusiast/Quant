@@ -1,0 +1,7 @@
+# Force LF line endings for files that get executed on Linux (inside
+# Docker containers, CI, etc.), regardless of core.autocrlf on the
+# checkout machine -- a CRLF shebang line breaks script execution on
+# Linux ("no such file or directory" from a phantom \r in the interpreter
+# path).
+*.sh text eol=lf
+Dockerfile text eol=lf
