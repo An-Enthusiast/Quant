@@ -666,14 +666,30 @@ running, network-free demo).
 
 **Verification status:** `cmake`/`ctest` were run directly (not just
 inside Docker) and pass (§4). `docker compose config` was run and confirms
-the compose file parses and resolves correctly. A full `docker build` was
-attempted but could not complete on the current development machine: the
-network here blocks the pull of the `python:3.11-slim` base image from
-Docker Hub's CDN backend (`production.cloudfront.docker.com`), returning
-an explicit `403` rather than a transient failure. The Dockerfile/compose
-files are written and reviewed to the same standard as everything else in
-this repository; building the image from a machine with normal Docker Hub
-access is the one verification step not yet completed directly.
+the compose file parses and resolves correctly. A full `docker build -f
+deployment/Dockerfile -t quant-engine .` was run to completion on a
+machine with a working Docker Desktop install: both stages succeeded --
+the C++ build stage compiled `qengine.cpython-311-x86_64-linux-gnu.so`
+via g++ 14.2.0/cmake in ~43s, and the runtime stage installed every
+`requirements.txt` dependency and assembled the final image cleanly. The
+resulting image is ~741MB (content) / ~2.3GB (disk usage), and was
+confirmed to contain the real Bhavcopy archive (`data/sample_data/`,
+~14MB) while correctly excluding local `data/db/*.duckdb` build
+artifacts (per `.dockerignore`) -- i.e. the image ships with real
+historical data baked in and ready to use, not stale local test state.
+This run also surfaced and fixed a real Windows-checkout issue:
+`core.autocrlf=true` had silently given `deployment/entrypoint.sh` CRLF
+line endings on disk, which would have broken its `#!/usr/bin/env bash`
+shebang inside the (Linux) container at `docker run` time even though the
+build itself would have succeeded; a `.gitattributes` rule now pins shell
+scripts and the Dockerfile to LF regardless of checkout platform. An
+earlier attempt from a different, network-restricted development
+environment could not even pull the `python:3.11-slim` base image (an
+explicit `403` from that environment's own network policy hitting Docker
+Hub's CDN backend, unrelated to the Dockerfile) -- that was an
+environment limitation, not a defect in the Dockerfile, as this
+successful build confirms. Scope note: this verified the build only, not
+a full `docker run`/live-container smoke test.
 
 **Benchmark harness** (§4.2, §4.4, §4.3 numbers): single core, warm
 compiled/JIT state, `time.perf_counter()` around tight loops of
@@ -737,7 +753,14 @@ exact parameters.
    `UpstoxProtobufAdapter` need real credentials and the websocket/protobuf
    handshake implemented per their module docstrings; the
    `MarketDataInterface` contract they'll conform to is already fixed and
-   tested against the Phase-1 adapter.
+   tested against the Phase-1 adapter -- that architecture is unaffected
+   by anything below. Current operational note (as reported, not
+   independently verified by this project): Shoonya's API surface was
+   reportedly updated to meet a SEBI-mandated security-rules change
+   effective 1 April, so the login/session handshake this adapter will
+   need to implement should be re-checked against Shoonya's current API
+   documentation before implementation, rather than assumed unchanged
+   from what was true when this scaffold was written.
 4. **Joint (cross-expiry) SVI calibration.** Done -- sequential,
    calendar-floor-constrained calibration (§4.3) brought real-data
    calendar violations from 83.3%/78.9% down to 1.4%/3.1%
@@ -756,11 +779,12 @@ exact parameters.
    documented approximation appropriate to touch+volume data; real L2/L3
    depth from a live broker feed (Phase 2) would let the backtester graduate
    to genuine FIFO queue simulation.
-6. **Docker image build.** Blocked on the current development machine by
-   local network restrictions (§8), not by anything in the Dockerfile
-   itself; verify with
-   `docker build -f deployment/Dockerfile -t quant-engine .` from a
-   machine with normal registry access.
+6. **Docker image build.** Done -- verified with `docker build -f
+   deployment/Dockerfile -t quant-engine .` on a machine with a working
+   Docker Desktop install and normal registry access; see §8 for the
+   measured result. The earlier failure was specific to a
+   network-restricted development environment blocking the Docker Hub
+   base-image pull, not anything in the Dockerfile itself.
 
 ---
 

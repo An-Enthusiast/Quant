@@ -24,6 +24,14 @@ To complete this adapter:
      full chain for that underlying+expiry) to every registered callback.
   4. Implement reconnect-with-backoff in `_run_forever` (the outer loop
      below already has the retry skeleton).
+
+Current operational note (as reported, not independently verified by
+this project): Shoonya's API surface was reportedly updated to meet a
+SEBI-mandated security-rules change effective 1 April. Re-check step 1's
+login flow against Shoonya's current API documentation before
+implementing -- the steps above describe the architecture this adapter
+needs to fill in, not a guarantee that the exact handshake details are
+still current post-update.
 """
 
 from __future__ import annotations
