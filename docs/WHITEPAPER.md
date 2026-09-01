@@ -501,7 +501,7 @@ exact parameters.
 
 ```bash
 # 1. Clone and enter the repo, create a virtualenv
-git clone <repo-url> && cd Quant
+git clone https://github.com/An-Enthusiast/Quant && cd Quant
 python3 -m venv .venv && source .venv/bin/activate
 pip install --upgrade pip && pip install -r requirements.txt
 
